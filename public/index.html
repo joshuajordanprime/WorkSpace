@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Tracker</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#1b2430;--muted:#5d6b7a;--line:#d9dfe6;--accent:#1f4fd8;
+--applied:#5d6b7a;--interview:#b7791f;--offer:#1f8a5b;--rejected:#b83a3a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:1rem;padding:.9rem 1.5rem;background:var(--ink);color:#fff}
+header h1{font-size:1.15rem;margin:0;flex:1;letter-spacing:.01em}
+header button{background:none;border:1px solid #ffffff55;color:#fff}
+main{max-width:920px;margin:1.5rem auto;padding:0 1rem}
+button,input,select,textarea{font:inherit}
+button{padding:.5rem .9rem;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #8fb0ff;outline-offset:1px}
+input,select,textarea{width:100%;padding:.55rem .65rem;border:1px solid var(--line);border-radius:6px;background:#fff}
+label{display:block;font-size:.9rem;color:var(--muted);margin:.7rem 0 .2rem}
+.auth{max-width:380px;margin:12vh auto;background:var(--panel);padding:1.75rem;border-radius:10px;border:1px solid var(--line)}
+.auth h2{margin-top:0}.auth button{width:100%;margin-top:1rem}
+.err{color:var(--rejected);min-height:1.4em;margin:.6rem 0 0;font-size:.92rem}
+.bar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:1rem}
+.bar .spacer{flex:1}
+.chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.tabs button{border:none;background:none;border-bottom:3px solid transparent;border-radius:0;padding:.4rem .2rem;margin-right:1rem}
+.tabs button[aria-current=true]{border-color:var(--accent);font-weight:600}
+.app{display:grid;grid-template-columns:6px 1fr auto;gap:.9rem;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem .8rem 0;margin-bottom:.6rem;align-items:center;overflow:hidden}
+.app .stripe{align-self:stretch}
+.app h3{margin:0;font-size:1.02rem}.app p{margin:.15rem 0 0;color:var(--muted);font-size:.9rem}
+.badge{font-weight:600;font-size:.85rem}
+.due{color:var(--rejected);font-weight:600}
+.actions button{padding:.3rem .6rem;font-size:.88rem;margin-left:.25rem}
+.empty{padding:2.5rem 1rem;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:8px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-bottom:1.2rem}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem}
+.stat b{display:block;font-size:1.7rem}.stat span{color:var(--muted);font-size:.9rem}
+.weeks{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem}
+.week{display:grid;grid-template-columns:80px 1fr 30px;gap:.6rem;align-items:center;font-size:.88rem;margin:.3rem 0}
+.week i{display:block;height:14px;background:var(--accent);border-radius:3px}
+dialog{border:none;border-radius:10px;padding:1.4rem;width:min(460px,92vw)}
+dialog::backdrop{background:#0008}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.dlg-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.1rem}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+<script>
+const STAGES=['Applied','Interview','Offer','Rejected'];
+const COLORS={Applied:'var(--applied)',Interview:'var(--interview)',Offer:'var(--offer)',Rejected:'var(--rejected)'};
+const $=(s)=>document.querySelector(s);
+const esc=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let token=localStorage.getItem('token'),view='apps',filter='All',apps=[],mode='login';
+
+async function api(path,opts={}){
+  const res=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:opts.body?JSON.stringify(opts.body):undefined});
+  if(res.status===401&&token){logout();throw new Error('Session expired.')}
+  const data=res.headers.get('content-type')?.includes('json')?await res.json():await res.text();
+  if(!res.ok)throw new Error(data.error||'Something went wrong.');
+  return data;
+}
+function logout(){token=null;localStorage.removeItem('token');render()}
+
+function render(){token?(view==='apps'?renderApps():renderStats()):renderAuth()}
+
+function renderAuth(){
+  const signup=mode==='signup';
+  $('#root').innerHTML=`<form class="auth" id="authForm"><h2>${signup?'Create your account':'Log in'}</h2>
+  <label for="email">Email</label><input id="email" type="email" required autocomplete="email">
+  <label for="pw">Password${signup?' (8+ characters)':''}</label><input id="pw" type="password" required minlength="${signup?8:1}" autocomplete="${signup?'new-password':'current-password'}">
+  <p class="err" id="err" role="alert"></p>
+  <button class="primary">${signup?'Create account':'Log in'}</button>
+  <p style="text-align:center"><button type="button" id="swap" style="border:none;background:none;color:var(--accent);width:auto">${signup?'I already have an account':'Create an account'}</button></p></form>`;
+  $('#swap').onclick=()=>{mode=signup?'login':'signup';renderAuth()};
+  $('#authForm').onsubmit=async(e)=>{e.preventDefault();
+    try{const r=await api(signup?'signup':'login',{method:'POST',body:{email:$('#email').value,password:$('#pw').value}});
+      token=r.token;localStorage.setItem('token',token);view='apps';load()}
+    catch(x){$('#err').textContent=x.message}};
+}
+
+function shell(inner){
+  $('#root').innerHTML=`<header><h1>Job Tracker</h1><button id="out">Log out</button></header>
+  <main><nav class="tabs"><button data-v="apps" aria-current="${view==='apps'}">Applications</button><button data-v="stats" aria-current="${view==='stats'}">Stats</button></nav><div style="height:1rem"></div>${inner}</main>`;
+  $('#out').onclick=logout;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{view=b.dataset.v;render();view==='apps'?load():0});
+}
+
+async function load(){try{apps=await api('applications'+(filter!=='All'?'?status='+filter:''));render()}catch(e){}}
+
+function renderApps(){
+  const today=new Date().toISOString().slice(0,10);
+  const list=apps.map(a=>{const due=a.follow_up_date&&a.follow_up_date<=today&&a.status!=='Rejected'&&a.status!=='Offer';
+    return `<article class="app"><div class="stripe" style="background:${COLORS[a.status]}"></div>
+    <div><h3>${esc(a.company)} <span style="font-weight:400;color:var(--muted)">${esc(a.role)}</span></h3>
+    <p><span class="badge" style="color:${COLORS[a.status]}">${a.status}</span> · Applied ${a.applied_date}${a.follow_up_date?` · <span class="${due?'due':''}">Follow up ${a.follow_up_date}${due?' (due)':''}</span>`:''}</p>
+    ${a.notes?`<p>${esc(a.notes)}</p>`:''}</div>
+    <div class="actions"><button data-edit="${a.id}">Edit</button><button data-del="${a.id}">Delete</button></div></article>`}).join('');
+  shell(`<div class="bar">${['All',...STAGES].map(s=>`<button class="chip" data-f="${s}" aria-pressed="${filter===s}">${s}</button>`).join('')}
+  <span class="spacer"></span><button id="csv">Export CSV</button><button class="primary" id="add">Add application</button></div>
+  ${list||`<div class="empty">${filter==='All'?'No applications yet. Add your first one to start tracking.':'No applications with this status.'}</div>`}`);
+  document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;load()});
+  $('#add').onclick=()=>openForm();
+  $('#csv').onclick=async()=>{const t=await api('export.csv');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='applications.csv';a.click()};
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openForm(apps.find(a=>a.id==b.dataset.edit)));
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this application?')){await api('applications/'+b.dataset.del,{method:'DELETE'});load()}});
+}
+
+function openForm(a={}){
+  const v=(k,d='')=>esc(a[k]??d);
+  $('#form').innerHTML=`<h2 style="margin-top:0">${a.id?'Edit application':'Add application'}</h2>
+  <label for="company">Company</label><input id="company" required value="${v('company')}">
+  <label for="role">Role</label><input id="role" required value="${v('role')}">
+  <div class="row"><div><label for="status">Status</label><select id="status">${STAGES.map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+  <div><label for="ad">Applied on</label><input id="ad" type="date" required value="${v('applied_date',new Date().toISOString().slice(0,10))}"></div></div>
+  <label for="fu">Follow-up date</label><input id="fu" type="date" value="${v('follow_up_date')}">
+  <label for="notes">Notes</label><textarea id="notes" rows="3">${v('notes')}</textarea>
+  <p class="err" id="ferr" role="alert"></p>
+  <div class="dlg-actions"><button type="button" id="cancel">Cancel</button><button class="primary" id="save" type="submit">Save changes</button></div>`;
+  $('#cancel').onclick=()=>$('#dlg').close();
+  $('#form').onsubmit=async(e)=>{e.preventDefault();
+    const body={company:$('#company').value,role:$('#role').value,status:$('#status').value,applied_date:$('#ad').value,follow_up_date:$('#fu').value,notes:$('#notes').value};
+    try{await api('applications'+(a.id?'/'+a.id:''),{method:a.id?'PUT':'POST',body});$('#dlg').close();load()}
+    catch(x){$('#ferr').textContent=x.message}};
+  $('#dlg').showModal();
+}
+
+async function renderStats(){
+  try{const s=await api('stats');const max=Math.max(1,...s.perWeek.map(w=>w.count));
+    shell(`<div class="stats"><div class="stat"><b>${s.total}</b><span>Total applications</span></div>
+    <div class="stat"><b>${s.responseRate}%</b><span>Response rate</span></div>
+    ${STAGES.map(k=>`<div class="stat"><b style="color:${COLORS[k]}">${s.counts[k]}</b><span>${k}</span></div>`).join('')}</div>
+    <div class="weeks"><h3 style="margin-top:0">Applications per week</h3>${s.perWeek.length?s.perWeek.map(w=>`<div class="week"><span>${w.week}</span><i style="width:${w.count/max*100}%"></i><b>${w.count}</b></div>`).join(''):'<p class="empty" style="border:none">Stats appear after your first application.</p>'}</div>`)}
+  catch(e){}
+}
+render();if(token)load();
+</script>
+</body>
+</html>
