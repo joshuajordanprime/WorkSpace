@@ -1,6 +1,6 @@
 # WorkSpace
 # Job Tracker
-// 10 - 5 - 2026
+10 - 5 - 2026
 A full-stack web app for tracking job applications through Applied, Interview, Offer, and Rejected.
 
 ## Features
